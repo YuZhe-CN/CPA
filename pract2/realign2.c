@@ -99,50 +99,56 @@ void realign( int w,int h,Byte a[] ) {
     fprintf(stderr,"ERROR: Not enough memory for voff\n");
     return;
   }
-
-  // Part 1. Find optimal offset of each line with respect to the previous line
-  for ( y = 1 ; y < h ; y++ ) {
-
-    // Find offset of line y that produces the minimum distance between lines y and y-1
-    dmin = distance( w, &a[3*(y-1)*w], &a[3*y*w], INT_MAX ); // offset=0
-    bestoff = 0;
-
-
-    #pragma omp parallel for private(d, id_thread) lastprivate(num_threads)
-    for ( off = 1 ; off < w ; off++ ) {
-      d  = distance( w-off, &a[3*(y-1)*w], &a[3*(y*w+off)], dmin );
-      d += distance( off, &a[3*(y*w-off)], &a[3*y*w], dmin-d );
-      num_threads = omp_get_num_threads();
-      // Update minimum distance and corresponding best offset
-      #pragma omp critical
-      if ( d < dmin ) { dmin = d; bestoff = off; }
-    }
-    voff[y] = bestoff;
-  }
-    printf("Numero de hilos usados: %d\n", num_threads);
-  // Part 2. Convert offsets from relative to absolute and find maximum offset of any line
-  max = 0;
-  voff[0] = 0;
-  for ( y = 1 ; y < h ; y++ ) {
-    voff[y] = ( voff[y-1] + voff[y] ) % w;
-    d = voff[y] <= w / 2 ? voff[y] : w - voff[y];
-    if ( d > max ) max = d;
-  }
-
-  // Part 3. Shift each line to its place, using auxiliary buffer v
   #pragma omp parallel private(v)
   {
-      v = malloc(3 * max * sizeof(Byte));
-      if (v == NULL)
-            fprintf(stderr, "ERROR: Not enough memory for v\n");
-      else {
-          #pragma omp for
-          for (y = 1; y < h; y++) {
-                cyclic_shift(w, &a[3 * y * w], voff[y], v);
-          }
-          free(v);
-      }
+    num_threads = omp_get_num_threads();
+    // Part 1. Find optimal offset of each line with respect to the previous line
+    #pragma omp for private(off, d, dmin, bestoff)
+    for (y = 1; y < h; y++) {
+        // Find offset of line y that produces the minimum distance between lines y and y-1
+        dmin = distance(w, &a[3 * (y - 1) * w], &a[3 * y * w], INT_MAX); // offset=0
+        bestoff = 0;
+
+        for (off = 1; off < w; off++) {
+            d = distance(w - off, &a[3 * (y - 1) * w], &a[3 * (y * w + off)], dmin);
+            d += distance(off, &a[3 * (y * w - off)], &a[3 * y * w], dmin - d);
+
+            // Update minimum distance and corresponding best offset
+
+            if (d < dmin) {
+                dmin = d;
+                bestoff = off;
+            }
+        }
+
+        voff[y] = bestoff;
+    }
+
+    // Part 2. Convert offsets from relative to absolute and find maximum offset of any line
+    #pragma omp single
+    {
+        max = 0;
+        voff[0] = 0;
+        for (y = 1; y < h; y++) {
+            voff[y] = (voff[y - 1] + voff[y]) % w;
+            d = voff[y] <= w / 2 ? voff[y] : w - voff[y];
+            if (d > max) max = d;
+        }
+    }
+    // Part 3. Shift each line to its place, using auxiliary buffer v
+
+    v = malloc(3 * max * sizeof(Byte));
+    if (v == NULL)
+        fprintf(stderr, "ERROR: Not enough memory for v\n");
+    else {
+        #pragma omp for
+        for (y = 1; y < h; y++) {
+            cyclic_shift(w, &a[3 * y * w], voff[y], v);
+        }
+        free(v);
+    }
   }
+  printf("Numero de hilos usados: %d\n", num_threads);
   free(voff);
 }
 
