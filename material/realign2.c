@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <omp.h>
 
 typedef unsigned char Byte;
 
@@ -91,48 +92,63 @@ void cyclic_shift( int n, Byte a[], int p, Byte v[] ) {
 void realign( int w,int h,Byte a[] ) {
   int y, off,bestoff,dmin,max, d, *voff;
   Byte *v;
+  int num_threads = 0, id_thread = 0;
 
   voff = malloc( h * sizeof(int) );
   if ( voff == NULL ) {
     fprintf(stderr,"ERROR: Not enough memory for voff\n");
     return;
   }
+  #pragma omp parallel private(v)
+  {
+    num_threads = omp_get_num_threads();
+    // Part 1. Find optimal offset of each line with respect to the previous line
+    #pragma omp for private(off, d, dmin, bestoff)
+    for (y = 1; y < h; y++) {
+        // Find offset of line y that produces the minimum distance between lines y and y-1
+        dmin = distance(w, &a[3 * (y - 1) * w], &a[3 * y * w], INT_MAX); // offset=0
+        bestoff = 0;
 
-  // Part 1. Find optimal offset of each line with respect to the previous line
-  for ( y = 1 ; y < h ; y++ ) {
+        for (off = 1; off < w; off++) {
+            d = distance(w - off, &a[3 * (y - 1) * w], &a[3 * (y * w + off)], dmin);
+            d += distance(off, &a[3 * (y * w - off)], &a[3 * y * w], dmin - d);
 
-    // Find offset of line y that produces the minimum distance between lines y and y-1
-    dmin = distance( w, &a[3*(y-1)*w], &a[3*y*w], INT_MAX ); // offset=0
-    bestoff = 0;
-    for ( off = 1 ; off < w ; off++ ) {
-      d  = distance( w-off, &a[3*(y-1)*w], &a[3*(y*w+off)], dmin );
-      d += distance( off, &a[3*(y*w-off)], &a[3*y*w], dmin-d );
-      // Update minimum distance and corresponding best offset
-      if ( d < dmin ) { dmin = d; bestoff = off; }
+            // Update minimum distance and corresponding best offset
+
+            if (d < dmin) {
+                dmin = d;
+                bestoff = off;
+            }
+        }
+
+        voff[y] = bestoff;
     }
-    voff[y] = bestoff;
-  }
 
-  // Part 2. Convert offsets from relative to absolute and find maximum offset of any line
-  max = 0;
-  voff[0] = 0;
-  for ( y = 1 ; y < h ; y++ ) {
-    voff[y] = ( voff[y-1] + voff[y] ) % w;
-    d = voff[y] <= w / 2 ? voff[y] : w - voff[y];
-    if ( d > max ) max = d;
-  }
-
-  // Part 3. Shift each line to its place, using auxiliary buffer v
-  v = malloc( 3 * max * sizeof(Byte) );
-  if ( v == NULL )
-    fprintf(stderr,"ERROR: Not enough memory for v\n");
-  else {
-    for ( y = 1 ; y < h ; y++ ) {
-      cyclic_shift( w, &a[3*y*w], voff[y], v );
+    // Part 2. Convert offsets from relative to absolute and find maximum offset of any line
+    #pragma omp single
+    {
+        max = 0;
+        voff[0] = 0;
+        for (y = 1; y < h; y++) {
+            voff[y] = (voff[y - 1] + voff[y]) % w;
+            d = voff[y] <= w / 2 ? voff[y] : w - voff[y];
+            if (d > max) max = d;
+        }
     }
-    free(v);
-  }
+    // Part 3. Shift each line to its place, using auxiliary buffer v
 
+    v = malloc(3 * max * sizeof(Byte));
+    if (v == NULL)
+        fprintf(stderr, "ERROR: Not enough memory for v\n");
+    else {
+        #pragma omp for
+        for (y = 1; y < h; y++) {
+            cyclic_shift(w, &a[3 * y * w], voff[y], v);
+        }
+        free(v);
+    }
+  }
+  printf("Numero de hilos usados: %d\n", num_threads);
   free(voff);
 }
 
@@ -154,7 +170,11 @@ int main(int argc,char *argv[]) {
   a = read_ppm(in,&w,&h);
   if ( a == NULL ) return 1;
 
+  double time1 = omp_get_wtime();
   realign( w,h,a );
+  double  time2 = omp_get_wtime();
+
+  printf("Time execution: %lf\n", time2 - time1);
 
   if ( out[0] != '\0' ) write_ppm(out,w,h,a);
 
