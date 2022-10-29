@@ -71,9 +71,11 @@ v = malloc(3 * max * sizeof(Byte));
       }
   }
 ````
+
 En este caso, para paralelizar el bucle hemos tenido que encerrarlo todo en un bloque, ya que cada hilo debe tener una copia privada del 
 vector `v`, `#pragma omp parallel private(v)`. Después distribuir las iteraciones entre los hilos mediante 
 `#pragma omp for` de esta manera cada hilo realizara una serie de iteraciones.
+
 ---
 ## Ejercicio 2
 
