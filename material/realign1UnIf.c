@@ -114,13 +114,13 @@ void realign( int w,int h,Byte a[] ) {
       d += distance( off, &a[3*(y*w-off)], &a[3*y*w], dmin-d );
       num_threads = omp_get_num_threads();
       // Update minimum distance and corresponding best offset
-      if(d < dmin) {
+
           #pragma omp critical
           if (d < dmin) {
               dmin = d;
               bestoff = off;
           }
-      }
+
     }
     voff[y] = bestoff;
   }
@@ -135,19 +135,19 @@ void realign( int w,int h,Byte a[] ) {
   }
 
   // Part 3. Shift each line to its place, using auxiliary buffer v
-  #pragma omp parallel private(v)
-  {
+
+
       v = malloc(3 * max * sizeof(Byte));
       if (v == NULL)
             fprintf(stderr, "ERROR: Not enough memory for v\n");
       else {
-          #pragma omp for
+          #pragma omp parallel for private(v)
           for (y = 1; y < h; y++) {
                 cyclic_shift(w, &a[3 * y * w], voff[y], v);
           }
           free(v);
       }
-  }
+
   free(voff);
 }
 

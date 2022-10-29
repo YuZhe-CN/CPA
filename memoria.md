@@ -14,14 +14,21 @@ for ( off = 1 ; off < w ; off++ ) {
 ````
 
 ```c
-#pragma omp parallel for private(d)
-    for ( off = 1 ; off < w ; off++ ) {
-      d  = distance( w-off, &a[3*(y-1)*w], &a[3*(y*w+off)], dmin );
-      d += distance( off, &a[3*(y*w-off)], &a[3*y*w], dmin-d );
-      // Update minimum distance and corresponding best offset
-      #pragma omp critical
-      if ( d < dmin ) { dmin = d; bestoff = off; }
+#pragma omp parallel for private(d, id_thread) lastprivate(num_threads)
+for ( off = 1 ; off < w ; off++ ) {
+    d  = distance( w-off, &a[3*(y-1)*w], &a[3*(y*w+off)], dmin );
+    d += distance( off, &a[3*(y*w-off)], &a[3*y*w], dmin-d );
+    num_threads = omp_get_num_threads();
+// Update minimum distance and corresponding best offset
+    if(d < dmin) {
+        #pragma omp critical
+        if (d < dmin) {
+            dmin = d;
+            bestoff = off;
+        }
     }
+}
+voff[y] = bestoff;
 ```
 
 En este bucle intervienen diferentes variables que son: `off`, `d`, `dmin` y `bestoff`. De los cuales, la variable `off`
@@ -32,8 +39,8 @@ La dificultad del bucle viene dada por el `if`, ya que la variable `dmin` debe s
 Esto se podría solucionarse mediante `reduction(min: dmin)`, sin embargo la variable `bestoff` daría problemas debido a
 que sólo se actualiza cuando `d < dmin`. Si no hiciesemos nada, `bestoff` sería compartidad y daría problemas de condición 
 de carrera, pero tampoco tendría sentido hacerlo `reduction`, ya que no sabemos cómo queremos que sea el valor final de
-ella. Como solución definitiva, nos hemos decantado por hacer que todo el if sea una sección crítica, resuelve tanto la 
-actualización de `dmin` como la de `bestoff`, de esta manera, aunque sean compartidas, no hay condición de carrera y 
+ella. Como solución definitiva, nos hemos decantado por hacer que todo el `if` este dentro de otro `if` que comprueba la
+la mismma condicion y sea la interna una sección crítica, resuelve tanto la actualización de `dmin` como la de `bestoff`, de esta manera,aunque sean compartidas, no hay condición de carrera y 
 aseguramos que tengan los valores que deben tener.
 
 ````c
@@ -64,10 +71,10 @@ v = malloc(3 * max * sizeof(Byte));
       }
   }
 ````
-En este caso, para paralelizar el bucle hemos tenido que un bloque ya que cada hilo debe tener una copia privada del 
+En este caso, para paralelizar el bucle hemos tenido que encerrarlo todo en un bloque, ya que cada hilo debe tener una copia privada del 
 vector `v`, `#pragma omp parallel private(v)`. Después distribuir las iteraciones entre los hilos mediante 
-`#pragma omp for`.
-
+`#pragma omp for` de esta manera cada hilo realizara una serie de iteraciones.
+---
 ## Ejercicio 2
 
 ````c
@@ -140,4 +147,5 @@ manera solo un hilo ejecutará esa parte y los demás esperarán a que termine, 
 segunda. En cuanto al bucle externo de la parte 1, usamos la directiva `#pragma omp for private(off, d, dmin, bestoff)` 
 para distribuir las iteraciones entre los hilos. Como cada hilo tendrá que calcular el desplazamiento óptimo de las 
 lineas que les ha tocado, debemos hacer private las variables `off, d, dmin, bestoff` para que cada hilo tenga una copia
-para el mismo. 
+para el mismo. El bucle de la tercera parte es casi igual que el ejercicio anterior, solo que hemos declarado private `v`
+al principio de todo el bloque paralelo.
