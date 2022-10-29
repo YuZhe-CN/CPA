@@ -43,6 +43,8 @@ ella. Como solución definitiva, nos hemos decantado por hacer que todo el `if` 
 la mismma condicion y sea la interna una sección crítica, resuelve tanto la actualización de `dmin` como la de `bestoff`, de esta manera,aunque sean compartidas, no hay condición de carrera y 
 aseguramos que tengan los valores que deben tener.
 
+**Bucle parte 3**
+
 ````c
 v = malloc(3 * max * sizeof(Byte));
       if (v == NULL)
@@ -55,7 +57,7 @@ v = malloc(3 * max * sizeof(Byte));
           free(v);
       }
 ````
-**Bucle parte 3**
+
 ````c
   #pragma omp parallel private(v)
   {
