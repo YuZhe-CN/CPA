@@ -114,8 +114,13 @@ void realign( int w,int h,Byte a[] ) {
       d += distance( off, &a[3*(y*w-off)], &a[3*y*w], dmin-d );
       num_threads = omp_get_num_threads();
       // Update minimum distance and corresponding best offset
-      #pragma omp critical
-      if ( d < dmin ) { dmin = d; bestoff = off; }
+      if(d < dmin) {
+          #pragma omp critical
+          if (d < dmin) {
+              dmin = d;
+              bestoff = off;
+          }
+      }
     }
     voff[y] = bestoff;
   }
