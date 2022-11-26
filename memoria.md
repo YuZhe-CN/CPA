@@ -153,3 +153,126 @@ para distribuir las iteraciones entre los hilos. Como cada hilo tendrá que calc
 lineas que les ha tocado, debemos hacer private las variables `off, d, dmin, bestoff` para que cada hilo tenga una copia
 para el mismo. El bucle de la tercera parte es casi igual que el ejercicio anterior, solo que hemos declarado private `v`
 al principio de todo el bloque paralelo.
+
+---
+
+## Ejercicio 6
+### Paralelización de distance
+
+#### Versión a: d compartido
+````c
+int distance( int n, Byte a1[], Byte a2[], int c ) {
+  int i, d,e;
+  n *= 3; // 3 bytes per pixel (red, green, blue)
+  d = 0;
+  #pragma omp parallel private(i, e)
+  {
+      int hilo = omp_get_thread_num();
+      int nhilos = omp_get_num_threads();
+      for ( i = hilo ; i < n && d < c ; i+=nhilos) {
+          e = (int)a1[i] - a2[i];
+          if ( e >= 0 ) {
+              #pragma omp atomic
+              d += e;
+          }
+          else {
+              #pragma omp atomic
+              d -= e;
+          }
+
+      }
+
+  }
+
+  return d;
+}
+````
+Para paralelizar este método, la dificultad esta principalmente en la guarda del bucle for. Al existir una
+condición extra, `d < c`, esto hace que no se pueda paralelizar de forma habitual. Como solución a este problema,
+es necesario repartir manualmente las iteraciones del bucle entre los hilos. Es por eso que se declara dos variables
+privadas para cada hilo, `hilo` es el identificador del hilo y `nhilo`es el número de hilos. En cada iteración se
+modifican las variables `i` y `e`, es por eso que necesitamos declararlos como privadas para que cada hilo tenga
+su propia copia. En cuanto a la variable `d` al ser compartida, la actualización de su valor por cada hilo debe 
+hacerse en exclusión mútua. Por este motivo, usamos la directiva `#praga omp atomic` para la expresión `d+=e`. 
+
+#### Versión b: d privado
+````c
+int distance( int n, Byte a1[], Byte a2[], int c ) {
+  int i, d,e;
+  n *= 3; // 3 bytes per pixel (red, green, blue)
+  d = 0;
+  #pragma omp parallel private(i, e) reduction(+:d)
+  {
+      int hilo = omp_get_thread_num();
+      int nhilos = omp_get_num_threads();
+      for ( i = hilo ; i < n && d < c ; i+=nhilos) {
+          e = (int)a1[i] - a2[i];
+          if ( e >= 0 ) {
+
+              d += e;
+          }
+          else {
+
+              d -= e;
+          }
+
+      }
+
+  }
+
+  return d;
+}
+````
+La diferencia principal comparado con la versión anterior es que en este caso la variable d es privada, es
+decir, para cada hilo existirá una copia. Después de que todos los hilos terminen sus iteraciones, para conseguir
+el valor verdadero de d, es necesario sumar todos esas copias de los hilos. Para conseguir este resultado se ha 
+utilizado la `reduction(+:d)`.
+
+### Paralelización de cyclic_shift
+
+````c
+void cyclic_shift( int n, Byte a[], int p, Byte v[] ) {
+  int i,d;
+
+  if ( p != 0 ) {
+    n *= 3; p *= 3;
+    d = n - p;
+    // Shift is done from right to left of from left to right
+    // depending on which alternative requires less space in the auxiliary
+    // array v
+    if ( p <= n / 2 ) { // right to left
+        #pragma omp parallel
+        {
+            #pragma omp for
+            for (i = 0; i < p; i++) v[i] = a[i];
+            #pragma omp single
+            for (i = p; i < n; i++) a[i - p] = a[i];
+            #pragma omp for
+            for (i = 0; i < p; i++) a[d + i] = v[i];
+        }
+    } else { // left to right
+        #pragma omp parallel
+        {
+            #pragma omp for
+            for (i = 0; i < d; i++) v[i] = a[p + i];
+            #pragma omp single
+            for (i = p - 1; i >= 0; i--) a[i + d] = a[i];
+            #pragma omp for
+            for (i = 0; i < d; i++) a[i] = v[i];
+        }
+    }
+  }
+}
+```` 
+Para paralelizar el método se ha definido dos regiones paralelas. Una para los desplazamientos hacia izquierda, 
+mientras que la otra región es para los desplazamientos hacia derecha. En las dos regiones, los primeros bucles y 
+los últimos se paralelizan sin dificultad con una directiva `#pragma omp for`. Sin embargo, los bucles del medio 
+no se pueden paralelizar debido a la existencia de dependencias entre iteraciones. En los desplazamientos hacia la 
+izquierda, si `p < d` habrá dependiencias entre iteraciones. Mientras que en los desplazamientos hacia la derecha, 
+si `p > d` habrá dependencias. 
+
+En cuanto a las prestaciones de las dos versiones, es más rapida la versión cuando la variable `d` en la función 
+`distance` es privada. La principal razón es que si fuera compartida, los demás hilos tendrían que esperar a que 
+el hilo que estuviese ejecutando la expresión `d+=a` termine para que otro pueda ejecutarlo. Esto no sucede cuando 
+la variable es privada, ya que cada hilo por separado realizará la actualización y al final de todo se unen todas 
+las copias. 
